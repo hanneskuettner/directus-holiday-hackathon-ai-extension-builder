@@ -1325,6 +1325,158 @@ const component = await loadModule(`/${entry}`, {
 
 ---
 
+## /ai/chat API Contract
+
+### Endpoint
+
+`POST /ai/chat` - Server-Sent Events (SSE) stream
+
+### Request Body
+
+```ts
+interface ChatRequest {
+  // Provider/model selection (discriminated union)
+  provider: 'openai' | 'anthropic';
+  model: string;  // e.g., 'claude-sonnet-4-5', 'gpt-5-mini'
+
+  // Message history (UIMessage[] from @ai-sdk/vue)
+  messages: UIMessage[];
+
+  // Tools to enable
+  tools: Array<string | {
+    name: string;
+    description: string;
+    inputSchema: JSONSchema7;  // JSON Schema Draft-7
+  }>;
+
+  // Optional: per-tool approval modes
+  toolApprovals?: Record<string, 'always' | 'ask' | 'disabled'>;
+}
+```
+
+**Provider Models:**
+- `anthropic`: `claude-sonnet-4-5`, `claude-haiku-4-5`, `claude-opus-4-1`
+- `openai`: `gpt-5`, `gpt-5-nano`, `gpt-5-mini`, `gpt-5-pro`
+
+### Response (SSE Stream)
+
+Uses AI SDK's `pipeUIMessageStreamToResponse()` - standard stream format:
+
+```
+data: {"type":"text-delta","textDelta":"Hello"}
+data: {"type":"tool-call","toolCallId":"abc","toolName":"write_file","args":{...}}
+data: {"type":"tool-result","toolCallId":"abc","result":{...}}
+data: {"type":"finish","..."}
+data: {"type":"data-usage","data":{"inputTokens":100,"outputTokens":50,"totalTokens":150}}
+```
+
+### Tool Call Flow
+
+1. **Server-side tools** (string names like `'items'`, `'schema'`) - executed on server
+2. **Custom tools** (object with schema) - executed client-side via `onToolCall` callback
+
+For our extension builder, all tools are custom/local - server just routes tool calls back to client.
+
+### Client Usage with @ai-sdk/vue
+
+```ts
+import { Chat, DefaultChatTransport, type UIMessage } from 'ai';
+import { z } from 'zod';
+
+// Convert Zod schema to JSON Schema for API
+const toApiTool = (tool: ToolDefinition) => ({
+  name: tool.name,
+  description: tool.description,
+  inputSchema: z.toJSONSchema(tool.inputSchema, { target: 'draft-7' }),
+});
+
+const chat = new Chat<UIMessage>({
+  transport: new DefaultChatTransport({
+    api: '/ai/chat',
+    credentials: 'include',
+    body: () => ({
+      provider: selectedModel.provider,
+      model: selectedModel.model,
+      tools: localTools.map(toApiTool),
+      toolApprovals: {
+        // Auto-approve all local tools
+        ...Object.fromEntries(localTools.map(t => [t.name, 'always'])),
+      },
+    }),
+  }),
+  onToolCall: async ({ toolCall }) => {
+    // Find and execute local tool
+    const tool = localTools.find(t => t.name === toolCall.toolName);
+    if (!tool) throw new Error(`Unknown tool: ${toolCall.toolName}`);
+
+    try {
+      const output = await tool.execute(toolCall.input);
+      chat.addToolResult({
+        tool: toolCall.toolName,
+        output,
+        toolCallId: toolCall.toolCallId
+      });
+    } catch (e) {
+      chat.addToolResult({
+        tool: toolCall.toolName,
+        state: 'output-error',
+        errorText: e.message,
+        toolCallId: toolCall.toolCallId,
+      });
+    }
+  },
+  // Auto-continue when tool results are added
+  sendAutomaticallyWhen: ({ messages }) =>
+    lastAssistantMessageIsCompleteWithToolCalls({ messages }),
+});
+
+// Send a message
+chat.sendMessage({ text: 'Create a color picker interface' });
+
+// Reactive state
+const messages = computed(() => chat.messages);
+const status = computed(() => chat.status);  // 'idle' | 'streaming' | 'submitted'
+const error = computed(() => chat.error);
+```
+
+### UIMessage Structure
+
+```ts
+interface UIMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  parts: MessagePart[];
+}
+
+type MessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'tool-call'; toolCallId: string; toolName: string; args: unknown; state: ToolState }
+  | { type: 'tool-result'; toolCallId: string; result: unknown };
+
+type ToolState =
+  | 'call'           // Tool was called
+  | 'result'         // Result received
+  | 'output-available'
+  | 'output-error'
+  | 'approval-requested'  // Waiting for user approval
+  | 'approved'
+  | 'denied';
+```
+
+### Key Behaviors
+
+1. **System prompt**: Server uses global `ai_system_prompt` from settings. We prepend context to first user message.
+
+2. **Tool execution loop**: Chat SDK auto-sends when `sendAutomaticallyWhen` condition met (after tool results added).
+
+3. **Message limit**: Server has 10-step limit (`stepCountIs(10)`) to prevent runaway loops.
+
+4. **Streaming**: Response is SSE - parts arrive incrementally. Access via reactive `chat.messages`.
+
+5. **Error handling**: Use `chat.error` for stream errors, `output-error` state for tool execution errors.
+
+---
+
 ## Reviewer Feedback (Already Addressed)
 
 From code review:
@@ -1337,12 +1489,12 @@ From code review:
 
 ## Next Steps
 
-### Pre-Implementation (Design Refinement)
+### Pre-Implementation (Design Refinement) ✅
 
 1. ~~**Refine system prompt** - Expand with rich component examples, props/emit patterns, common UI patterns~~ ✅
 2. ~~**Define type definitions** - Create `types.ts` with `Question`, `ExtensionConfig`, `AiExtension`, tool I/O types~~ ✅
-3. **Spec QuestionInput component** - Define props, emits, UI for each input_type (text, select, collection, field)
-4. **Document /ai/chat contract** - Request/response structure, tool call flow, streaming behavior
+3. ~~**Spec QuestionInput component** - Define props, emits, UI for each input_type (text, select, collection, field)~~ ✅
+4. ~~**Document /ai/chat contract** - Request/response structure, tool call flow, streaming behavior~~ ✅
 
 ### Implementation
 

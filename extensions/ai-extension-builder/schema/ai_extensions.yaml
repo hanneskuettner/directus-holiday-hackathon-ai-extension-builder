@@ -1,0 +1,117 @@
+# ai_extensions collection schema
+# Apply via Directus Admin UI or API
+
+collection: ai_extensions
+meta:
+  icon: auto_fix_high
+  note: AI-generated extensions stored in database
+  hidden: false
+  singleton: false
+
+fields:
+  - field: id
+    type: uuid
+    meta:
+      interface: input
+      readonly: true
+      hidden: true
+    schema:
+      is_primary_key: true
+      has_auto_increment: false
+
+  - field: slug
+    type: string
+    meta:
+      interface: input
+      required: true
+      note: Unique identifier used as extension id
+    schema:
+      is_unique: true
+      is_nullable: false
+
+  - field: name
+    type: string
+    meta:
+      interface: input
+      required: true
+
+  - field: type
+    type: string
+    meta:
+      interface: select-dropdown
+      options:
+        choices:
+          - text: Interface
+            value: interface
+          - text: Panel
+            value: panel
+          - text: Module
+            value: module
+    schema:
+      default_value: interface
+
+  - field: icon
+    type: string
+    meta:
+      interface: input
+    schema:
+      default_value: extension
+
+  - field: description
+    type: text
+    meta:
+      interface: input-multiline
+
+  - field: files
+    type: json
+    meta:
+      interface: input-code
+      options:
+        language: json
+      note: "Virtual file system: { 'index.vue': '...', 'components/Button.vue': '...' }"
+
+  - field: entry
+    type: string
+    meta:
+      interface: input
+    schema:
+      default_value: index.vue
+
+  - field: extension_config
+    type: json
+    meta:
+      interface: input-code
+      options:
+        language: json
+      note: InterfaceConfig without component
+
+  - field: status
+    type: string
+    meta:
+      interface: select-dropdown
+      options:
+        choices:
+          - text: Draft
+            value: draft
+          - text: Published
+            value: published
+    schema:
+      default_value: draft
+
+  - field: version
+    type: integer
+    meta:
+      interface: input
+    schema:
+      default_value: 1
+
+  - field: ai_prompt
+    type: text
+    meta:
+      interface: input-multiline
+      note: Original generation prompt
+
+  - field: ai_model
+    type: string
+    meta:
+      interface: input

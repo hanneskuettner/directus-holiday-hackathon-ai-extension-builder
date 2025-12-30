@@ -6,7 +6,32 @@
 
 **Architecture:** Chat-based composable uses `@ai-sdk/vue` Chat class with local tool definitions. Tools manipulate virtual filesystem, ask discovery questions, and trigger preview compilation. BuilderView coordinates state between ChatPanel, PreviewPanel, and the composable.
 
-**Tech Stack:** Vue 3, TypeScript, Zod, @ai-sdk/vue (Chat, DefaultChatTransport), vue3-sfc-loader
+**Tech Stack:** Vue 3, TypeScript, Zod 4, ai (Chat, DefaultChatTransport), vue3-sfc-loader
+
+---
+
+## Task 0: Install Dependencies
+
+**Files:**
+- Modify: `extensions/ai-extension-builder/package.json`
+
+**Step 1: Install required npm packages**
+
+Run: `cd extensions/ai-extension-builder && pnpm add ai zod`
+
+Expected: Packages added to package.json dependencies
+
+**Step 2: Verify installation**
+
+Run: `pnpm install`
+Expected: No errors, lock file updated
+
+**Step 3: Commit**
+
+```bash
+git add extensions/ai-extension-builder/package.json pnpm-lock.yaml
+git commit -m "chore(ai-builder): add ai, zod deps"
+```
 
 ---
 
@@ -239,6 +264,8 @@ export interface UseAiGenerationReturn {
   config: Ref<ExtensionConfig | null>;
   pendingQuestion: Ref<Question | null>;
   statusMessage: Ref<{ message: string; type: 'info' | 'success' | 'warning' } | null>;
+  answerQuestion: (answer: string) => void;
+  skipQuestion: () => void;
 }
 
 /**
@@ -810,7 +837,7 @@ export function useAiGeneration(options: UseAiGenerationOptions): UseAiGeneratio
     statusMessage,
     answerQuestion,
     skipQuestion,
-  } as UseAiGenerationReturn & { answerQuestion: typeof answerQuestion; skipQuestion: typeof skipQuestion };
+  } as UseAiGenerationReturn;
 }
 ```
 
@@ -900,10 +927,6 @@ git commit -m "feat(ai-builder): rewrite composable with Chat + tools"
 import { useStores } from '@directus/extensions-sdk';
 import { computed, ref } from 'vue';
 import type { Question } from '../types';
-
-defineProps<{
-  question: Question;
-}>();
 
 const props = defineProps<{
   question: Question;
@@ -1392,7 +1415,7 @@ git commit -m "feat(ai-builder): add SDK externalization to compiler"
       </v-notice>
 
       <div v-else class="component-wrapper">
-        <component :is="component" v-bind="props" @input="onInput" />
+        <component :is="component" v-bind="previewProps" @input="onInput" />
       </div>
     </div>
 
@@ -1404,13 +1427,15 @@ git commit -m "feat(ai-builder): add SDK externalization to compiler"
 </template>
 
 <script setup lang="ts">
-import { onErrorCaptured, ref, watch } from 'vue';
+import { onErrorCaptured, ref, toRefs, watch } from 'vue';
 
 const props = defineProps<{
   component: object | null;
-  props: Record<string, unknown>;
+  previewProps: Record<string, unknown>;
   error: Error | null;
 }>();
+
+const { component } = toRefs(props);
 
 const lastInputValue = ref<unknown>(undefined);
 const runtimeError = ref<Error | null>(null);
@@ -1421,7 +1446,7 @@ function onInput(value: unknown) {
 
 // Clear runtime error when component changes
 watch(
-  () => props.component,
+  component,
   () => {
     runtimeError.value = null;
     lastInputValue.value = undefined;
@@ -1604,6 +1629,11 @@ function onSkip() {
   skipQuestion();
 }
 
+function onReset() {
+  reset();
+  cleanup(PREVIEW_SLUG);
+}
+
 async function onSaveDraft() {
   if (!config.value) return;
 
@@ -1681,7 +1711,7 @@ async function onPublish() {
         rounded
         icon
         secondary
-        @click="reset"
+        @click="onReset"
       >
         <v-icon name="refresh" />
       </v-button>
@@ -1729,7 +1759,7 @@ async function onPublish() {
         />
         <PreviewPanel
           :component="compiledComponent"
-          :props="previewProps"
+          :preview-props="previewProps"
           :error="compileError"
         />
       </div>

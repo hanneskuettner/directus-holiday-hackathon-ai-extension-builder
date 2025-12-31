@@ -9,11 +9,11 @@
         <div class="message-content">
           <template v-for="(part, idx) in message.parts" :key="idx">
             <span v-if="part.type === 'text'">{{ part.text }}</span>
-            <div v-else-if="part.type === 'tool-invocation'" class="tool-call">
+            <div v-else-if="part.type === 'tool-call'" class="tool-call">
               <v-icon name="build" small />
               <span class="tool-name">{{ part.toolName }}</span>
               <v-chip v-if="part.state === 'result'" small>done</v-chip>
-              <v-progress-circular v-else-if="part.state === 'call'" indeterminate x-small />
+              <v-progress-circular v-else indeterminate x-small />
             </div>
           </template>
         </div>

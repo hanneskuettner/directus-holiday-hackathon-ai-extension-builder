@@ -4,7 +4,7 @@
 
 **Goal:** Persist AI chat sessions so users can restore and iterate on extensions.
 
-**Architecture:** Add `initialize()` and `getSerializedMessages()` to `useAiGeneration`, create `useAutoSave` composable for debounced persistence, update routes and `BuilderView` to handle new/existing sessions.
+**Architecture:** Add `initialize()` and `prepareMessagesForStorage()` to `useAiGeneration`, create `useAutoSave` composable for debounced persistence, update routes and `BuilderView` to handle new/existing sessions.
 
 **Tech Stack:** Vue 3, AI SDK (`UIMessage`), Directus API, vue-router
 
@@ -69,7 +69,7 @@ Inside `UseAiGenerationReturn` interface, add after `skipQuestion`:
 
 ```ts
 	initialize: (data: InitializeData) => void;
-	getSerializedMessages: () => UIMessage[];
+	prepareMessagesForStorage: () => UIMessage[];
 ```
 
 **Step 2: Add new type definitions at end of file**
@@ -141,20 +141,18 @@ function extractUserContent(text: string): string {
 	return text;
 }
 
-// Serialize messages for storage (strip system prompt from first message)
-function serializeMessages(messages: UIMessage[]): UIMessage[] {
+// Prepare messages for storage (deep clone + strip system prompt from first message)
+function prepareMessagesForStorageInternal(messages: UIMessage[]): UIMessage[] {
 	return messages.map((msg, idx) => {
-		if (idx === 0 && msg.role === 'user') {
-			return {
-				...msg,
-				parts: (msg.parts ?? []).map(part =>
-					part.type === 'text'
-						? { ...part, text: extractUserContent(part.text) }
-						: part
-				),
-			};
+		const cloned = structuredClone(msg);
+		if (idx === 0 && cloned.role === 'user') {
+			cloned.parts = (cloned.parts ?? []).map(part =>
+				part.type === 'text'
+					? { ...part, text: extractUserContent(part.text) }
+					: part
+			);
 		}
-		return msg;
+		return cloned;
 	});
 }
 ```
@@ -190,7 +188,7 @@ Replace the `send` function body:
 	}
 ```
 
-**Step 5: Add initialize() and getSerializedMessages() after reset()**
+**Step 5: Add initialize() and prepareMessagesForStorage() after reset()**
 
 ```ts
 	function initialize(data: { files: Record<string, string>; config: ExtensionConfig | null; messages: UIMessage[] }) {
@@ -199,6 +197,7 @@ Replace the `send` function body:
 		config.value = data.config;
 
 		// Restore messages to chat
+		// Note: Chat class exposes messages as mutable shallowRef array
 		chat.messages.splice(0, chat.messages.length, ...data.messages);
 
 		// Mark as restored session (use continuation prompt on next send)
@@ -206,20 +205,20 @@ Replace the `send` function body:
 		isFirstMessage = true; // Will inject continuation prompt on first new message
 	}
 
-	function getSerializedMessages(): UIMessage[] {
-		return serializeMessages([...chat.messages]);
+	function prepareMessagesForStorage(): UIMessage[] {
+		return prepareMessagesForStorageInternal([...chat.messages]);
 	}
 ```
 
 **Step 6: Add to return statement**
 
-Add `initialize` and `getSerializedMessages` to the return object.
+Add `initialize` and `prepareMessagesForStorage` to the return object.
 
 **Step 7: Commit**
 
 ```bash
 git add extensions/ai-extension-builder/src/module/composables/use-ai-generation.ts
-git commit -m "feat(ai-builder): add initialize/getSerializedMessages to useAiGeneration"
+git commit -m "feat(ai-builder): add initialize/prepareMessagesForStorage to useAiGeneration"
 ```
 
 ---
@@ -236,18 +235,20 @@ import type { UIMessage } from 'ai';
 import type { ComputedRef, Ref } from 'vue';
 import type { ExtensionConfig } from '../schemas';
 import { useApi } from '@directus/extensions-sdk';
-import { ref, watch } from 'vue';
+import { onUnmounted, ref, watch } from 'vue';
+
+const AUTO_SAVE_DEBOUNCE_MS = 2000;
 
 interface UseAutoSaveOptions {
 	extensionId: Ref<string | null>;
 	files: Ref<Record<string, string>>;
 	config: Ref<ExtensionConfig | null>;
 	messages: ComputedRef<UIMessage[]>;
-	getSerializedMessages: () => UIMessage[];
+	prepareMessagesForStorage: () => UIMessage[];
 }
 
 export function useAutoSave(options: UseAutoSaveOptions) {
-	const { extensionId, files, config, messages, getSerializedMessages } = options;
+	const { extensionId, files, config, messages, prepareMessagesForStorage } = options;
 	const api = useApi();
 
 	const isSaving = ref(false);
@@ -270,7 +271,7 @@ export function useAutoSave(options: UseAutoSaveOptions) {
 					group: config.value.group,
 					options: config.value.options,
 				} : null,
-				messages: getSerializedMessages(),
+				messages: prepareMessagesForStorage(),
 			});
 			lastSaved.value = new Date();
 		} catch (err) {
@@ -288,12 +289,12 @@ export function useAutoSave(options: UseAutoSaveOptions) {
 		debounceTimer = setTimeout(() => {
 			save();
 			debounceTimer = null;
-		}, 2000);
+		}, AUTO_SAVE_DEBOUNCE_MS);
 	}
 
-	// Watch for changes (files, config, or messages length)
+	// Watch for changes (files, config, or messages)
 	watch(
-		[files, config, () => messages.value.length],
+		[files, config, messages],
 		() => {
 			if (extensionId.value) {
 				debouncedSave();
@@ -301,6 +302,13 @@ export function useAutoSave(options: UseAutoSaveOptions) {
 		},
 		{ deep: true }
 	);
+
+	// Cleanup timer on unmount
+	onUnmounted(() => {
+		if (debounceTimer) {
+			clearTimeout(debounceTimer);
+		}
+	});
 
 	return {
 		isSaving,
@@ -404,6 +412,7 @@ import { useAiGeneration } from '../composables/use-ai-generation';
 import { useAutoSave } from '../composables/use-auto-save';
 import { useExtensionInjector } from '../composables/use-extension-injector';
 import { useSfcCompiler } from '../composables/use-sfc-compiler';
+import { ExtensionConfigSchema } from '../schemas';
 
 const props = defineProps<{
 	id?: string;
@@ -414,9 +423,11 @@ const router = useRouter();
 const { compile, compiledComponent, lastError: compileError, cleanup } = useSfcCompiler();
 const { injectExtension } = useExtensionInjector();
 
-// Extension ID (null for new, string for existing)
+// Extension ID and slug (null for new, string for existing)
 const extensionId = ref<string | null>(props.id ?? null);
+const extensionSlug = ref<string | null>(null);
 const isLoading = ref(false);
+const loadError = ref<string | null>(null);
 
 // Preview slug
 const PREVIEW_SLUG = 'preview';
@@ -434,7 +445,7 @@ const {
 	answerQuestion,
 	skipQuestion,
 	initialize,
-	getSerializedMessages,
+	prepareMessagesForStorage,
 } = useAiGeneration({
 	onPreview: async () => {
 		if (!files.value['index.vue']) {
@@ -447,12 +458,12 @@ const {
 });
 
 // Auto-save (only active when extensionId exists)
-const { isSaving, lastSaved } = useAutoSave({
+const { isSaving, lastSaved, error: saveError } = useAutoSave({
 	extensionId,
 	files,
 	config,
 	messages,
-	getSerializedMessages,
+	prepareMessagesForStorage,
 });
 
 // Preview context
@@ -474,19 +485,23 @@ const canPublish = computed(() => config.value !== null && !compileError.value);
 onMounted(async () => {
 	if (props.id) {
 		isLoading.value = true;
+		loadError.value = null;
 		try {
 			const response = await api.get<{ data: StoredExtension }>(`/items/ai_extensions/${props.id}`);
 			const data = response.data.data;
 
-			// Convert stored config to ExtensionConfig format
-			const restoredConfig = data.extension_config ? {
-				name: data.name,
-				icon: data.icon,
-				description: data.description,
-				types: data.extension_config.types as never[],
-				group: data.extension_config.group as never,
-				options: data.extension_config.options as never[],
-			} : null;
+			// Store slug for later use
+			extensionSlug.value = data.slug;
+
+			// Convert stored config to ExtensionConfig format via Zod
+			const restoredConfig = data.extension_config
+				? ExtensionConfigSchema.parse({
+					name: data.name,
+					icon: data.icon,
+					description: data.description,
+					...data.extension_config,
+				})
+				: null;
 
 			initialize({
 				files: data.files ?? {},
@@ -500,6 +515,7 @@ onMounted(async () => {
 			}
 		} catch (err) {
 			console.error('Failed to load extension:', err);
+			loadError.value = 'Failed to load extension';
 		} finally {
 			isLoading.value = false;
 		}
@@ -526,16 +542,19 @@ watch(config, async (newConfig, oldConfig) => {
 					group: newConfig.group,
 					options: newConfig.options,
 				},
-				messages: getSerializedMessages(),
+				// Don't save messages here - AI may still be streaming
+				// Auto-save will persist messages after debounce
 				status: 'draft',
 			});
 
 			extensionId.value = response.data.data.id;
+			extensionSlug.value = slug;
 
 			// Navigate to edit route
 			router.replace(`/ai-extension-builder/${extensionId.value}`);
 		} catch (err) {
 			console.error('Failed to create extension:', err);
+			loadError.value = 'Failed to create extension';
 		}
 	}
 });
@@ -568,11 +587,13 @@ function onReset() {
 	reset();
 	cleanup(PREVIEW_SLUG);
 	extensionId.value = null;
+	extensionSlug.value = null;
+	loadError.value = null;
 	router.replace('/ai-extension-builder/+');
 }
 
 async function onPublish() {
-	if (!config.value || !extensionId.value) return;
+	if (!config.value || !extensionId.value || !extensionSlug.value) return;
 
 	try {
 		await api.patch(`/items/ai_extensions/${extensionId.value}`, {
@@ -581,7 +602,7 @@ async function onPublish() {
 
 		await injectExtension({
 			id: extensionId.value,
-			slug: `ai-${extensionId.value}`,
+			slug: extensionSlug.value,
 			name: config.value.name,
 			icon: config.value.icon,
 			description: config.value.description,
@@ -596,6 +617,7 @@ async function onPublish() {
 		});
 	} catch (err) {
 		console.error('Failed to publish:', err);
+		loadError.value = 'Failed to publish extension';
 	}
 }
 </script>
@@ -641,6 +663,10 @@ async function onPublish() {
     </template>
 
     <div class="builder-container">
+      <v-notice v-if="loadError || saveError" type="danger" class="error-notice">
+        {{ loadError || saveError?.message }}
+      </v-notice>
+
       <div class="chat-section">
         <ChatPanel
           :messages="messages"
@@ -697,6 +723,10 @@ async function onPublish() {
   flex-shrink: 0;
 }
 
+.error-notice {
+  grid-column: 1 / -1;
+}
+
 .header-icon {
   --v-button-background-color: var(--theme--primary-background);
   --v-button-color: var(--theme--primary);
@@ -736,7 +766,7 @@ pnpm build
 2. Should redirect to `/ai-extension-builder/+`
 3. Send a message, get AI response
 4. When AI calls `set_config`, URL should change to `/ai-extension-builder/:id`
-5. Make more changes, verify "Saving..." appears
+5. Make more changes, verify "Saving..." appears after 2s
 
 **Step 3: Test restore flow**
 
@@ -745,7 +775,12 @@ pnpm build
 3. Messages should reload
 4. Send new message - should work with continuation prompt
 
-**Step 4: Commit any fixes**
+**Step 4: Test error states**
+
+1. Disconnect network, verify error notice appears on save failure
+2. Navigate to invalid ID, verify load error appears
+
+**Step 5: Commit any fixes**
 
 ---
 
@@ -754,8 +789,19 @@ pnpm build
 Tasks:
 1. Add continuation prompt constant
 2. Update types
-3. Update useAiGeneration (initialize, getSerializedMessages)
+3. Update useAiGeneration (initialize, prepareMessagesForStorage)
 4. Create useAutoSave composable
 5. Update module routes
 6. Update BuilderView
 7. Manual test
+
+## Review Fixes Applied
+
+- **Watch messages directly** instead of `messages.value.length`
+- **Don't save messages on initial create** - let auto-save handle after debounce
+- **Use Zod parse** instead of `as never` casts for restored config
+- **Store extensionSlug** in ref and reuse in onPublish
+- **Add loadError/saveError** state with user-visible v-notice
+- **Cleanup debounce timer** on unmount
+- **Extract AUTO_SAVE_DEBOUNCE_MS** constant
+- **Renamed to prepareMessagesForStorage** + use structuredClone

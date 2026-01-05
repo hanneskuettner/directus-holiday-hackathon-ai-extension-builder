@@ -31,9 +31,13 @@ const loadError = ref<string | null>(null);
 // Preview slug
 const PREVIEW_SLUG = 'preview';
 
+// Sidebar refresh trigger
+const sidebarRefreshKey = ref(0);
+
 // AI generation composable
 const {
 	messages,
+	displayMessages,
 	send,
 	status,
 	files,
@@ -112,10 +116,7 @@ async function loadExtension(id: string) {
 			messages: data.messages ?? [],
 		});
 
-		// Compile if files exist
-		if (data.files?.['index.vue']) {
-			await compile(data.files, 'index.vue', PREVIEW_SLUG);
-		}
+		// Note: No need to compile here - the files watcher handles it
 	}
 	catch (error) {
 		console.error('Failed to load extension:', error);
@@ -181,6 +182,9 @@ watch(config, async (newConfig, oldConfig) => {
 			extensionId.value = response.data.data.id;
 			extensionSlug.value = slug;
 
+			// Refresh sidebar to show new extension
+			sidebarRefreshKey.value++;
+
 			// Navigate to edit route
 			router.replace(`/ai-extension-builder/${extensionId.value}`);
 		}
@@ -200,7 +204,7 @@ watch(
 			await compile(newFiles, 'index.vue', PREVIEW_SLUG);
 		}
 	},
-	{ deep: true },
+	{ deep: true, immediate: true },
 );
 
 function onSendMessage(content: string) {
@@ -264,7 +268,7 @@ async function onPublish() {
 		</template>
 
 		<template #navigation>
-			<ExtensionSidebar />
+			<ExtensionSidebar :key="sidebarRefreshKey" />
 		</template>
 
 		<template #actions>
@@ -302,7 +306,7 @@ async function onPublish() {
 
 			<div class="chat-section">
 				<ChatPanel
-					:messages="messages"
+					:messages="displayMessages"
 					:loading="isChatLoading || isLoading"
 					:pending-question="pendingQuestion"
 					@send="onSendMessage"

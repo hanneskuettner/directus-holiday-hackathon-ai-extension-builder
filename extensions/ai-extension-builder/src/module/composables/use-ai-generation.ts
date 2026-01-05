@@ -371,8 +371,26 @@ export function useAiGeneration(options: UseAiGenerationOptions): UseAiGeneratio
 		return prepareMessagesForStorageInternal([...chat.messages]);
 	}
 
+	// Messages for display (strips system prompt from first user message)
+	const displayMessages = computed(() =>
+		messages.value.map((msg, idx) => {
+			if (idx === 0 && msg.role === 'user') {
+				return {
+					...msg,
+					parts: (msg.parts ?? []).map(part =>
+						part.type === 'text'
+							? { ...part, text: extractUserContent(part.text) }
+							: part
+					),
+				};
+			}
+			return msg;
+		})
+	);
+
 	return {
 		messages,
+		displayMessages,
 		send,
 		status,
 		error,

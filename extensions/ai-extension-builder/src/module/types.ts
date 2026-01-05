@@ -54,6 +54,7 @@ export type AiExtensionListItem = Pick<AiExtensionRecord, 'id' | 'name' | 'icon'
  */
 export interface UseAiGenerationReturn {
 	messages: ComputedRef<UIMessage[]>;
+	displayMessages: ComputedRef<UIMessage[]>;
 	send: (text: string) => void;
 	status: ComputedRef<'idle' | 'streaming' | 'submitted' | 'error'>;
 	error: ComputedRef<Error | null>;

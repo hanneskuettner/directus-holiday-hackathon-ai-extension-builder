@@ -4,6 +4,7 @@ import { useApi } from '@directus/extensions-sdk';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import ChatPanel from '../components/ChatPanel.vue';
+import ExtensionSidebar from '../components/ExtensionSidebar.vue';
 import PreviewControls from '../components/PreviewControls.vue';
 import PreviewPanel from '../components/PreviewPanel.vue';
 import { useAiGeneration } from '../composables/use-ai-generation';
@@ -49,6 +50,7 @@ const {
 		if (!files.value['index.vue']) {
 			return { success: false, error: 'No index.vue file found' };
 		}
+
 		cleanup(PREVIEW_SLUG);
 		const { error } = await compile(files.value, 'index.vue', PREVIEW_SLUG);
 		return error ? { success: false, error: error.message } : { success: true };
@@ -79,46 +81,74 @@ const previewProps = computed(() => ({
 const isChatLoading = computed(() => status.value === 'streaming' || status.value === 'submitted');
 const canPublish = computed(() => config.value !== null && !compileError.value);
 
-// Load existing extension on mount
-onMounted(async () => {
-	if (props.id) {
-		isLoading.value = true;
-		loadError.value = null;
-		try {
-			const response = await api.get<{ data: StoredExtension }>(`/items/ai_extensions/${props.id}`);
-			const data = response.data.data;
+// Load extension by ID
+async function loadExtension(id: string) {
+	isLoading.value = true;
+	loadError.value = null;
 
-			// Store slug for later use
-			extensionSlug.value = data.slug;
+	try {
+		const response = await api.get<{ data: StoredExtension }>(`/items/ai_extensions/${id}`);
+		const data = response.data.data;
 
-			// Convert stored config to ExtensionConfig format via Zod
-			const restoredConfig = data.extension_config
-				? ExtensionConfigSchema.parse({
+		// Update extension ID and slug
+		extensionId.value = id;
+		extensionSlug.value = data.slug;
+
+		// Convert stored config to ExtensionConfig format via Zod
+		const restoredConfig = data.extension_config
+			? ExtensionConfigSchema.parse({
 					name: data.name,
 					icon: data.icon,
 					description: data.description,
-					...data.extension_config,
+					types: data.extension_config.types ?? [],
+					group: data.extension_config.group ?? 'standard',
+					options: data.extension_config.options ?? [],
 				})
-				: null;
+			: null;
 
-			initialize({
-				files: data.files ?? {},
-				config: restoredConfig,
-				messages: data.messages ?? [],
-			});
+		initialize({
+			files: data.files ?? {},
+			config: restoredConfig,
+			messages: data.messages ?? [],
+		});
 
-			// Compile if files exist
-			if (data.files?.['index.vue']) {
-				await compile(data.files, 'index.vue', PREVIEW_SLUG);
-			}
-		} catch (err) {
-			console.error('Failed to load extension:', err);
-			loadError.value = 'Failed to load extension';
-		} finally {
-			isLoading.value = false;
+		// Compile if files exist
+		if (data.files?.['index.vue']) {
+			await compile(data.files, 'index.vue', PREVIEW_SLUG);
 		}
 	}
+	catch (error) {
+		console.error('Failed to load extension:', error);
+		loadError.value = 'Failed to load extension';
+	}
+	finally {
+		isLoading.value = false;
+	}
+}
+
+// Load on mount if ID provided
+onMounted(() => {
+	if (props.id) {
+		loadExtension(props.id);
+	}
 });
+
+// Reload when ID changes (navigating between extensions)
+watch(
+	() => props.id,
+	(newId, oldId) => {
+		if (newId && newId !== oldId) {
+			cleanup(PREVIEW_SLUG);
+			loadExtension(newId);
+		} else if (!newId && oldId) {
+			// Navigated to new session
+			reset();
+			cleanup(PREVIEW_SLUG);
+			extensionId.value = null;
+			extensionSlug.value = null;
+		}
+	}
+);
 
 // Watch for first set_config to create record and redirect
 watch(config, async (newConfig, oldConfig) => {
@@ -150,8 +180,9 @@ watch(config, async (newConfig, oldConfig) => {
 
 			// Navigate to edit route
 			router.replace(`/ai-extension-builder/${extensionId.value}`);
-		} catch (err) {
-			console.error('Failed to create extension:', err);
+		}
+		catch (error) {
+			console.error('Failed to create extension:', error);
 			loadError.value = 'Failed to create extension';
 		}
 	}
@@ -166,7 +197,7 @@ watch(
 			await compile(newFiles, 'index.vue', PREVIEW_SLUG);
 		}
 	},
-	{ deep: true }
+	{ deep: true },
 );
 
 function onSendMessage(content: string) {
@@ -213,121 +244,126 @@ async function onPublish() {
 			},
 			status: 'published',
 		});
-	} catch (err) {
-		console.error('Failed to publish:', err);
+	}
+	catch (error) {
+		console.error('Failed to publish:', error);
 		loadError.value = 'Failed to publish extension';
 	}
 }
 </script>
 
 <template>
-  <private-view title="AI Extension Builder">
-    <template #title-outer:prepend>
-      <v-button class="header-icon" rounded disabled icon secondary>
-        <v-icon name="auto_fix_high" />
-      </v-button>
-    </template>
+	<private-view title="AI Extension Builder">
+		<template #title-outer:prepend>
+			<v-button class="header-icon" rounded disabled icon secondary>
+				<v-icon name="auto_fix_high" />
+			</v-button>
+		</template>
 
-    <template #actions>
-      <span v-if="isSaving" class="save-status">
-        <v-progress-circular indeterminate x-small />
-        Saving...
-      </span>
-      <span v-else-if="lastSaved" class="save-status">
-        Saved
-      </span>
-      <v-button
-        v-tooltip.bottom="'Reset'"
-        rounded
-        icon
-        secondary
-        @click="onReset"
-      >
-        <v-icon name="refresh" />
-      </v-button>
-      <v-button
-        v-tooltip.bottom="'Publish Extension'"
-        rounded
-        icon
-        :disabled="!canPublish"
-        @click="onPublish"
-      >
-        <v-icon name="publish" />
-      </v-button>
-    </template>
+		<template #navigation>
+			<ExtensionSidebar />
+		</template>
 
-    <div class="builder-container">
-      <v-notice v-if="loadError || saveError" type="danger" class="error-notice">
-        {{ loadError || saveError?.message }}
-      </v-notice>
+		<template #actions>
+			<span v-if="isSaving" class="save-status">
+				<v-progress-circular indeterminate x-small />
+				Saving...
+			</span>
+			<span v-else-if="lastSaved" class="save-status">
+				Saved
+			</span>
+			<v-button
+				v-tooltip.bottom="'Reset'"
+				rounded
+				icon
+				secondary
+				@click="onReset"
+			>
+				<v-icon name="refresh" />
+			</v-button>
+			<v-button
+				v-tooltip.bottom="'Publish Extension'"
+				rounded
+				icon
+				:disabled="!canPublish"
+				@click="onPublish"
+			>
+				<v-icon name="publish" />
+			</v-button>
+		</template>
 
-      <div class="chat-section">
-        <ChatPanel
-          :messages="messages"
-          :loading="isChatLoading || isLoading"
-          :pending-question="pendingQuestion"
-          @send="onSendMessage"
-          @answer="onAnswer"
-          @skip="onSkip"
-        />
-        <v-notice v-if="statusMessage" :type="statusMessage.type" class="status-notice">
-          {{ statusMessage.message }}
-        </v-notice>
-      </div>
+		<div class="builder-container">
+			<v-notice v-if="loadError || saveError" type="danger" class="error-notice">
+				{{ loadError || saveError?.message }}
+			</v-notice>
 
-      <div class="preview-section">
-        <PreviewControls
-          v-model:collection="selectedCollection"
-          v-model:item="selectedItem"
-          v-model:field="selectedField"
-        />
-        <PreviewPanel
-          :component="compiledComponent"
-          :preview-props="previewProps"
-          :error="compileError"
-        />
-      </div>
-    </div>
-  </private-view>
+			<div class="chat-section">
+				<ChatPanel
+					:messages="messages"
+					:loading="isChatLoading || isLoading"
+					:pending-question="pendingQuestion"
+					@send="onSendMessage"
+					@answer="onAnswer"
+					@skip="onSkip"
+				/>
+				<v-notice v-if="statusMessage" :type="statusMessage.type" class="status-notice">
+					{{ statusMessage.message }}
+				</v-notice>
+			</div>
+
+			<div class="preview-section">
+				<PreviewControls
+					v-model:collection="selectedCollection"
+					v-model:item="selectedItem"
+					v-model:field="selectedField"
+				/>
+				<PreviewPanel
+					:component="compiledComponent"
+					:preview-props="previewProps"
+					:error="compileError"
+				/>
+			</div>
+		</div>
+	</private-view>
 </template>
 
 <style scoped>
 .builder-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--content-padding);
-  height: calc(100% - var(--content-padding) * 2);
-  padding: var(--content-padding);
-  overflow: hidden;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: var(--content-padding);
+	height: calc(100% - var(--content-padding) * 2);
+	padding: var(--content-padding);
+	overflow: hidden;
 }
 
 .chat-section,
 .preview-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--content-padding);
-  overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	gap: var(--content-padding);
+	overflow: hidden;
 }
 
 .status-notice {
-  flex-shrink: 0;
+	flex-shrink: 0;
 }
 
 .error-notice {
-  grid-column: 1 / -1;
+	grid-column: 1 / -1;
 }
 
 .header-icon {
-  --v-button-background-color: var(--theme--primary-background);
-  --v-button-color: var(--theme--primary);
+	--v-button-background-color: var(--theme--primary-background);
+	--v-button-color: var(--theme--primary);
 }
 
 .save-status {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--theme--foreground-subdued);
-  font-size: 12px;
-  margin-right: 8px;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--theme--foreground-subdued);
+	font-size: 12px;
+	margin-right: 8px;
 }
 </style>

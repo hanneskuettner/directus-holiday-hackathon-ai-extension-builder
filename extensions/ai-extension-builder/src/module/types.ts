@@ -41,6 +41,8 @@ export interface UseAiGenerationReturn {
 	statusMessage: Ref<{ message: string; type: 'info' | 'success' | 'warning' } | null>;
 	answerQuestion: (answer: string) => void;
 	skipQuestion: () => void;
+	initialize: (data: InitializeData) => void;
+	prepareMessagesForStorage: () => UIMessage[];
 }
 
 /**
@@ -58,4 +60,34 @@ export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
 	description: string;
 	inputSchema: import('zod/v4').ZodType<TInput>;
 	execute: (input: TInput) => Promise<TOutput>;
+}
+
+/**
+ * Data to initialize a restored session
+ */
+export interface InitializeData {
+	files: Record<string, string>;
+	config: ExtensionConfig | null;
+	messages: UIMessage[];
+}
+
+/**
+ * Stored extension data from API
+ */
+export interface StoredExtension {
+	id: string;
+	slug: string;
+	name: string;
+	type: string;
+	icon: string;
+	description: string;
+	files: Record<string, string>;
+	entry: string;
+	extension_config: {
+		types: string[];
+		group: string;
+		options: unknown[];
+	};
+	messages: UIMessage[];
+	status: 'draft' | 'published';
 }

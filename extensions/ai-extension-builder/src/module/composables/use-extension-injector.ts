@@ -1,28 +1,13 @@
 import { ref } from 'vue';
 import { useSfcCompiler } from './use-sfc-compiler';
 import { getDirectusApp, getExtensionsFromApp } from '../utils/get-directus-app';
-
-interface AiExtension {
-  id: string;
-  slug: string;
-  name: string;
-  icon: string;
-  description: string;
-  files: Record<string, string>;
-  entry: string;
-  extension_config: {
-    types: string[];
-    group: string;
-    options: unknown[];
-  };
-  status: 'draft' | 'published';
-}
+import type { AiExtensionRecord } from '../types';
 
 export function useExtensionInjector() {
   const { compile } = useSfcCompiler();
   const injectedExtensions = ref<Set<string>>(new Set());
 
-  async function injectExtension(ext: AiExtension): Promise<boolean> {
+  async function injectExtension(ext: AiExtensionRecord): Promise<boolean> {
     const app = getDirectusApp();
     if (!app) {
       console.error('[AI Extension Builder] Could not access Vue app');

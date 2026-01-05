@@ -1,20 +1,13 @@
 <script setup lang="ts">
 import { useApi } from '@directus/extensions-sdk';
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
-
-interface AiExtensionItem {
-  id: string;
-  name: string;
-  icon: string;
-  description: string | null;
-  status: 'draft' | 'published';
-}
+import type { AiExtensionListItem } from '../types';
 
 const api = useApi();
 const route = useRoute();
 
-const extensions = ref<AiExtensionItem[]>([]);
+const extensions = ref<AiExtensionListItem[]>([]);
 const loading = ref(true);
 
 const currentId = computed(() => String(route.params.id ?? ''));
@@ -36,8 +29,7 @@ async function fetchExtensions() {
   }
 }
 
-// Refetch on route change (covers save/publish redirect scenarios)
-watch(() => route.params.id, fetchExtensions, { immediate: true });
+onMounted(fetchExtensions);
 </script>
 
 <template>

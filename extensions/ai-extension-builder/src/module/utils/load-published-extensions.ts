@@ -1,22 +1,7 @@
 import * as Vue from 'vue';
 import { loadModule } from 'vue3-sfc-loader';
 import { getDirectusApp, getExtensionsFromApp } from './get-directus-app';
-
-interface AiExtension {
-	id: string;
-	slug: string;
-	name: string;
-	icon: string;
-	description: string;
-	files: Record<string, string>;
-	entry: string;
-	extension_config: {
-		types: string[];
-		group: string;
-		options: unknown[];
-	};
-	status: 'draft' | 'published';
-}
+import type { AiExtensionRecord } from '../types';
 
 const styleRegistry = new Map<string, HTMLStyleElement>();
 
@@ -57,7 +42,7 @@ export async function loadPublishedExtensions(): Promise<void> {
 			throw new Error(`HTTP ${response.status}`);
 		}
 
-		const { data: published } = await response.json() as { data: AiExtension[] };
+		const { data: published } = await response.json() as { data: AiExtensionRecord[] };
 		if (!published?.length) return;
 
 		let loaded = 0;

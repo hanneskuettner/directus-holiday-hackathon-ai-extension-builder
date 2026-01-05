@@ -13,7 +13,7 @@ export interface Question {
 }
 
 /**
- * AI-generated extension stored in registry
+ * AI-generated extension stored in registry (in-memory)
  */
 export interface AiExtension {
 	slug: string;
@@ -23,6 +23,31 @@ export interface AiExtension {
 	createdAt: number;
 	updatedAt: number;
 }
+
+/**
+ * AI extension record from database
+ */
+export interface AiExtensionRecord {
+	id: string;
+	slug: string;
+	name: string;
+	type: string;
+	icon: string;
+	description: string | null;
+	files: Record<string, string>;
+	entry: string;
+	extension_config: {
+		types?: string[];
+		group?: string;
+		options?: unknown[];
+	};
+	status: 'draft' | 'published';
+}
+
+/**
+ * Subset for sidebar list display
+ */
+export type AiExtensionListItem = Pick<AiExtensionRecord, 'id' | 'name' | 'icon' | 'description' | 'status'>;
 
 /**
  * Return type of useAiGeneration composable

@@ -98,22 +98,27 @@ async function loadExtension(id: string) {
 		extensionId.value = id;
 		extensionSlug.value = data.slug;
 
+		// Parse JSON fields (API returns them as strings)
+		const parsedFiles = typeof data.files === 'string' ? JSON.parse(data.files) : data.files ?? {};
+		const parsedConfig = typeof data.extension_config === 'string' ? JSON.parse(data.extension_config) : data.extension_config;
+		const parsedMessages = typeof data.messages === 'string' ? JSON.parse(data.messages) : data.messages ?? [];
+
 		// Convert stored config to ExtensionConfig format via Zod
-		const restoredConfig = data.extension_config
+		const restoredConfig = parsedConfig
 			? ExtensionConfigSchema.parse({
 					name: data.name,
 					icon: data.icon,
 					description: data.description,
-					types: data.extension_config.types ?? [],
-					group: data.extension_config.group ?? 'standard',
-					options: data.extension_config.options ?? [],
+					types: parsedConfig.types ?? [],
+					group: parsedConfig.group ?? 'standard',
+					options: parsedConfig.options ?? [],
 				})
 			: null;
 
 		initialize({
-			files: data.files ?? {},
+			files: parsedFiles,
 			config: restoredConfig,
-			messages: data.messages ?? [],
+			messages: parsedMessages,
 		});
 
 		// Note: No need to compile here - the files watcher handles it

@@ -138,6 +138,9 @@ watch(
 	() => props.id,
 	(newId, oldId) => {
 		if (newId && newId !== oldId) {
+			// Skip reload if we just created this record (extensionId already set)
+			if (extensionId.value === newId) return;
+
 			cleanup(PREVIEW_SLUG);
 			loadExtension(newId);
 		} else if (!newId && oldId) {

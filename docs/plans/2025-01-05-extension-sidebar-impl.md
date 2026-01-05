@@ -8,6 +8,8 @@
 
 **Tech Stack:** Vue 3, Directus SDK (`useApi`), Vue Router (`useRoute`)
 
+**Prerequisites:** Routes `/ai-extension-builder/+` and `/ai-extension-builder/:id` configured (separate session).
+
 ---
 
 ## Task 1: Create ExtensionSidebar Component
@@ -20,8 +22,8 @@
 ```vue
 <script setup lang="ts">
 import { useApi } from '@directus/extensions-sdk';
-import { ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 
 interface AiExtensionItem {
   id: string;
@@ -33,10 +35,11 @@ interface AiExtensionItem {
 
 const api = useApi();
 const route = useRoute();
-const router = useRouter();
 
 const extensions = ref<AiExtensionItem[]>([]);
 const loading = ref(true);
+
+const currentId = computed(() => String(route.params.id ?? ''));
 
 async function fetchExtensions() {
   loading.value = true;
@@ -55,25 +58,13 @@ async function fetchExtensions() {
   }
 }
 
-// Refetch on route change (covers save/publish scenarios)
+// Refetch on route change (covers save/publish redirect scenarios)
 watch(() => route.params.id, fetchExtensions, { immediate: true });
-
-function isActive(id: string): boolean {
-  return route.params.id === id;
-}
-
-function navigateTo(id: string) {
-  router.push(`/ai-extension-builder/${id}`);
-}
-
-function createNew() {
-  router.push('/ai-extension-builder/+');
-}
 </script>
 
 <template>
   <div class="extension-sidebar">
-    <v-button class="new-button" full-width @click="createNew">
+    <v-button class="new-button" full-width to="/ai-extension-builder/+">
       <v-icon name="add" />
       New Extension
     </v-button>
@@ -88,9 +79,8 @@ function createNew() {
       <v-list-item
         v-for="ext in extensions"
         :key="ext.id"
-        clickable
-        :active="isActive(ext.id)"
-        @click="navigateTo(ext.id)"
+        :to="`/ai-extension-builder/${ext.id}`"
+        :active="currentId === ext.id"
       >
         <v-list-item-icon>
           <v-icon :name="ext.icon || 'extension'" />
@@ -130,13 +120,13 @@ function createNew() {
 .loading {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--theme--form--row-gap);
 }
 
 .item-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--theme--form--column-gap);
 }
 
 .name {
@@ -160,7 +150,7 @@ function createNew() {
 
 .description {
   color: var(--theme--foreground-subdued);
-  font-size: var(--theme--fonts--sans--font-size, 14px);
+  font-size: 14px;
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -247,6 +237,6 @@ Run: `pnpm dev`
 **Step 4: Test refresh behavior**
 
 1. Save a draft
-2. Verify sidebar list updates (may need to navigate)
+2. Verify sidebar list updates after redirect
 3. Publish an extension
 4. Verify status badge updates

@@ -48,9 +48,10 @@ function extractUserContent(text: string): string {
 }
 
 // Prepare messages for storage (deep clone + strip system prompt from first message)
+// Use JSON serialization instead of structuredClone because UIMessage contains non-cloneable objects
 function prepareMessagesForStorageInternal(messages: UIMessage[]): UIMessage[] {
 	return messages.map((msg, idx) => {
-		const cloned = structuredClone(msg);
+		const cloned = JSON.parse(JSON.stringify(msg)) as UIMessage;
 		if (idx === 0 && cloned.role === 'user') {
 			cloned.parts = (cloned.parts ?? []).map(part =>
 				part.type === 'text'

@@ -77,7 +77,9 @@ const fieldItems = computed(() => {
 
 <style scoped>
 .preview-controls {
+	container-type: inline-size;
 	display: flex;
+	flex-wrap: wrap;
 	gap: 12px;
 	padding: 12px;
 	background: var(--theme--background-subdued);
@@ -86,7 +88,8 @@ const fieldItems = computed(() => {
 }
 
 .control-group {
-	flex: 1;
+	flex: 1 1 150px;
+	min-width: 0;
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
@@ -96,5 +99,11 @@ const fieldItems = computed(() => {
 	font-size: 12px;
 	font-weight: 600;
 	color: var(--theme--foreground-subdued);
+}
+
+@container (max-width: 400px) {
+	.control-group {
+		flex-basis: 100%;
+	}
 }
 </style>

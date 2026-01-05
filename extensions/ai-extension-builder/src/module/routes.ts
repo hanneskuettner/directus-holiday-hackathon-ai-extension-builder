@@ -3,7 +3,9 @@ import BuilderView from './views/BuilderView.vue';
 export const routes = [
 	{
 		path: '',
-		redirect: '+',
+		redirect: {
+			name: 'ai-extension-builder-new',
+		},
 	},
 	{
 		path: '+',
@@ -18,4 +20,4 @@ export const routes = [
 	},
 ];
 
-export default BuilderView;
+export { default } from './views/BuilderView.vue';

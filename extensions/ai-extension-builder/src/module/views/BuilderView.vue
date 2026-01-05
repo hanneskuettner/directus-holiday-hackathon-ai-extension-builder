@@ -2,6 +2,7 @@
 import { useApi } from '@directus/extensions-sdk';
 import { computed, ref, watch } from 'vue';
 import ChatPanel from '../components/ChatPanel.vue';
+import ExtensionSidebar from '../components/ExtensionSidebar.vue';
 import PreviewControls from '../components/PreviewControls.vue';
 import PreviewPanel from '../components/PreviewPanel.vue';
 import { useAiGeneration } from '../composables/use-ai-generation';
@@ -189,6 +190,10 @@ async function onPublish() {
       >
         <v-icon name="publish" />
       </v-button>
+    </template>
+
+    <template #navigation>
+      <ExtensionSidebar />
     </template>
 
     <div class="builder-container">

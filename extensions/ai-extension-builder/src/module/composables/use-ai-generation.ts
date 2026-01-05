@@ -10,6 +10,7 @@ import {
 } from 'ai';
 import { computed, ref } from 'vue';
 import { z } from 'zod/v4';
+import { CONTINUATION_PROMPT } from '../constants/continuation-prompt';
 import { SYSTEM_PROMPT } from '../constants/system-prompt';
 import {
 	AskQuestionInputSchema,
@@ -36,6 +37,31 @@ function toApiTool(tool: ToolDefinition) {
 	};
 }
 
+// Extract user content from message that may contain system prompt
+function extractUserContent(text: string): string {
+	const userRequestMarker = '[User Request]\n';
+	const idx = text.indexOf(userRequestMarker);
+	if (idx !== -1) {
+		return text.slice(idx + userRequestMarker.length);
+	}
+	return text;
+}
+
+// Prepare messages for storage (deep clone + strip system prompt from first message)
+function prepareMessagesForStorageInternal(messages: UIMessage[]): UIMessage[] {
+	return messages.map((msg, idx) => {
+		const cloned = structuredClone(msg);
+		if (idx === 0 && cloned.role === 'user') {
+			cloned.parts = (cloned.parts ?? []).map(part =>
+				part.type === 'text'
+					? { ...part, text: extractUserContent(part.text) }
+					: part
+			);
+		}
+		return cloned;
+	});
+}
+
 interface UseAiGenerationOptions {
 	onPreview: () => Promise<RequestPreviewOutput>;
 }
@@ -50,6 +76,8 @@ export function useAiGeneration(options: UseAiGenerationOptions): UseAiGeneratio
 	const config = ref<ExtensionConfig | null>(null);
 	const pendingQuestion = ref<Question | null>(null);
 	const statusMessage = ref<{ message: string; type: 'info' | 'success' | 'warning' } | null>(null);
+
+	let isRestoredSession = false;
 
 	// Question resolution
 	let resolveQuestion: ((answer: string) => void) | null = null;
@@ -291,9 +319,14 @@ export function useAiGeneration(options: UseAiGenerationOptions): UseAiGeneratio
 	function send(text: string) {
 		let messageText = text;
 
-		// Prepend system prompt to first message
 		if (isFirstMessage) {
-			messageText = `[System Context]\n${SYSTEM_PROMPT}\n\n[User Request]\n${text}`;
+			if (isRestoredSession) {
+				// Restored session: use condensed continuation prompt
+				messageText = `[System Context]\n${CONTINUATION_PROMPT}\n\n[User Request]\n${text}`;
+			} else {
+				// New session: use full system prompt
+				messageText = `[System Context]\n${SYSTEM_PROMPT}\n\n[User Request]\n${text}`;
+			}
 			isFirstMessage = false;
 		}
 
@@ -319,6 +352,24 @@ export function useAiGeneration(options: UseAiGenerationOptions): UseAiGeneratio
 		isFirstMessage = true;
 	}
 
+	function initialize(data: { files: Record<string, string>; config: ExtensionConfig | null; messages: UIMessage[] }) {
+		// Restore state
+		files.value = data.files;
+		config.value = data.config;
+
+		// Restore messages to chat
+		// Note: Chat class exposes messages as mutable shallowRef array
+		chat.messages.splice(0, chat.messages.length, ...data.messages);
+
+		// Mark as restored session (use continuation prompt on next send)
+		isRestoredSession = true;
+		isFirstMessage = true; // Will inject continuation prompt on first new message
+	}
+
+	function prepareMessagesForStorage(): UIMessage[] {
+		return prepareMessagesForStorageInternal([...chat.messages]);
+	}
+
 	return {
 		messages,
 		send,
@@ -333,5 +384,7 @@ export function useAiGeneration(options: UseAiGenerationOptions): UseAiGeneratio
 		statusMessage,
 		answerQuestion,
 		skipQuestion,
+		initialize,
+		prepareMessagesForStorage,
 	} as UseAiGenerationReturn;
 }

@@ -2,6 +2,7 @@
 import type { UIMessage } from 'ai';
 import type { Question } from '../types';
 import { nextTick, ref, watch } from 'vue';
+import { md } from '../utils/md';
 import QuestionInput from './QuestionInput.vue';
 
 defineProps<{
@@ -50,7 +51,7 @@ watch(
 			>
 				<div class="message-content">
 					<template v-for="(part, idx) in message.parts" :key="idx">
-						<span v-if="part.type === 'text'">{{ part.text }}</span>
+						<span v-if="part.type === 'text'" v-html="md(part.text)" />
 						<div v-else-if="part.type === 'tool-call'" class="tool-call">
 							<v-icon name="build" small />
 							<span class="tool-name">{{ part.toolName }}</span>
@@ -137,8 +138,11 @@ watch(
 }
 
 .message-content {
-	white-space: pre-wrap;
 	word-break: break-word;
+}
+
+:deep(.message-content code) {
+	white-space: pre-wrap;
 }
 
 .tool-call {

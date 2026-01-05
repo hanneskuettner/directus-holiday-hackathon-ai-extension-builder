@@ -29,6 +29,8 @@
   "dependencies": {
     "@ai-sdk/vue": "^3.0.5",
     "ai": "^6.0.5",
+    "dompurify": "^3.3.1",
+    "marked": "^17.0.1",
     "vue3-sfc-loader": "^0.9.5",
     "zod": "^4.2.1"
   },

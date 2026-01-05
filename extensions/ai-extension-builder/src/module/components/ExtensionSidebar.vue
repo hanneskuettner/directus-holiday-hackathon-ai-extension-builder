@@ -40,7 +40,7 @@ onMounted(fetchExtensions);
 		<div class="button-wrapper">
 			<v-button class="new-button" full-width to="/ai-extension-builder/+">
 				<v-icon name="add" />
-				New Extension
+				New Interface
 			</v-button>
 		</div>
 

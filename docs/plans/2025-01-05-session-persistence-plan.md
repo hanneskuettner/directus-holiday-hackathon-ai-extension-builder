@@ -63,15 +63,18 @@ git commit -m "feat(ai-builder): add continuation prompt constant"
 **Files:**
 - Modify: `extensions/ai-extension-builder/src/module/types.ts`
 
-**Step 1: Add new types for session initialization**
+**Step 1: Add methods to UseAiGenerationReturn interface**
 
-Add after line 44 (after `skipQuestion`):
+Inside `UseAiGenerationReturn` interface, add after `skipQuestion`:
 
 ```ts
 	initialize: (data: InitializeData) => void;
 	getSerializedMessages: () => UIMessage[];
-}
+```
 
+**Step 2: Add new type definitions at end of file**
+
+```ts
 /**
  * Data to initialize a restored session
  */
@@ -103,7 +106,7 @@ export interface StoredExtension {
 }
 ```
 
-**Step 2: Commit**
+**Step 3: Commit**
 
 ```bash
 git add extensions/ai-extension-builder/src/module/types.ts
@@ -119,15 +122,13 @@ git commit -m "feat(ai-builder): add session persistence types"
 
 **Step 1: Add import for continuation prompt**
 
-After line 13 (`import { SYSTEM_PROMPT }`):
+After the `SYSTEM_PROMPT` import:
 
 ```ts
 import { CONTINUATION_PROMPT } from '../constants/continuation-prompt';
 ```
 
-**Step 2: Add helper function to extract user content**
-
-After line 37 (`}`), add:
+**Step 2: Add helper functions after `toApiTool` function**
 
 ```ts
 // Extract user content from message that may contain system prompt
@@ -160,15 +161,15 @@ function serializeMessages(messages: UIMessage[]): UIMessage[] {
 
 **Step 3: Add isRestoredSession flag**
 
-After line 52 (`const statusMessage = ref...`), add:
+After `statusMessage` ref declaration:
 
 ```ts
 	let isRestoredSession = false;
 ```
 
-**Step 4: Update send() to handle restored sessions**
+**Step 4: Update send() function**
 
-Replace the `send` function (lines 291-301):
+Replace the `send` function body:
 
 ```ts
 	function send(text: string) {
@@ -189,9 +190,7 @@ Replace the `send` function (lines 291-301):
 	}
 ```
 
-**Step 5: Add initialize() method**
-
-After the `reset` function (after line 320), add:
+**Step 5: Add initialize() and getSerializedMessages() after reset()**
 
 ```ts
 	function initialize(data: { files: Record<string, string>; config: ExtensionConfig | null; messages: UIMessage[] }) {
@@ -212,29 +211,9 @@ After the `reset` function (after line 320), add:
 	}
 ```
 
-**Step 6: Update return statement**
+**Step 6: Add to return statement**
 
-Add `initialize` and `getSerializedMessages` to return object (after line 335):
-
-```ts
-	return {
-		messages,
-		send,
-		status,
-		error,
-		stop,
-		retry,
-		reset,
-		files,
-		config,
-		pendingQuestion,
-		statusMessage,
-		answerQuestion,
-		skipQuestion,
-		initialize,
-		getSerializedMessages,
-	} as UseAiGenerationReturn;
-```
+Add `initialize` and `getSerializedMessages` to the return object.
 
 **Step 7: Commit**
 
@@ -254,7 +233,7 @@ git commit -m "feat(ai-builder): add initialize/getSerializedMessages to useAiGe
 
 ```ts
 import type { UIMessage } from 'ai';
-import type { Ref } from 'vue';
+import type { ComputedRef, Ref } from 'vue';
 import type { ExtensionConfig } from '../schemas';
 import { useApi } from '@directus/extensions-sdk';
 import { ref, watch } from 'vue';
@@ -263,11 +242,12 @@ interface UseAutoSaveOptions {
 	extensionId: Ref<string | null>;
 	files: Ref<Record<string, string>>;
 	config: Ref<ExtensionConfig | null>;
-	getMessages: () => UIMessage[];
+	messages: ComputedRef<UIMessage[]>;
+	getSerializedMessages: () => UIMessage[];
 }
 
 export function useAutoSave(options: UseAutoSaveOptions) {
-	const { extensionId, files, config, getMessages } = options;
+	const { extensionId, files, config, messages, getSerializedMessages } = options;
 	const api = useApi();
 
 	const isSaving = ref(false);
@@ -290,7 +270,7 @@ export function useAutoSave(options: UseAutoSaveOptions) {
 					group: config.value.group,
 					options: config.value.options,
 				} : null,
-				messages: getMessages(),
+				messages: getSerializedMessages(),
 			});
 			lastSaved.value = new Date();
 		} catch (err) {
@@ -311,9 +291,9 @@ export function useAutoSave(options: UseAutoSaveOptions) {
 		}, 2000);
 	}
 
-	// Watch for changes
+	// Watch for changes (files, config, or messages length)
 	watch(
-		[files, config],
+		[files, config, () => messages.value.length],
 		() => {
 			if (extensionId.value) {
 				debouncedSave();
@@ -343,10 +323,10 @@ git commit -m "feat(ai-builder): add useAutoSave composable"
 ### Task 5: Update Module Routes
 
 **Files:**
-- Modify: `extensions/ai-extension-builder/src/module/index.ts`
 - Modify: `extensions/ai-extension-builder/src/module/routes.ts`
+- Modify: `extensions/ai-extension-builder/src/module/index.ts`
 
-**Step 1: Update routes.ts to export routes array**
+**Step 1: Update routes.ts**
 
 Replace entire file:
 
@@ -374,7 +354,7 @@ export const routes = [
 export default BuilderView;
 ```
 
-**Step 2: Update index.ts to use routes array**
+**Step 2: Update index.ts**
 
 Replace entire file:
 
@@ -409,9 +389,7 @@ git commit -m "feat(ai-builder): update routes for new/edit sessions"
 **Files:**
 - Modify: `extensions/ai-extension-builder/src/module/views/BuilderView.vue`
 
-**Step 1: Add imports and props**
-
-After line 1 (`<script setup lang="ts">`), replace the script block:
+**Step 1: Replace script block**
 
 ```ts
 <script setup lang="ts">
@@ -473,7 +451,8 @@ const { isSaving, lastSaved } = useAutoSave({
 	extensionId,
 	files,
 	config,
-	getMessages: getSerializedMessages,
+	messages,
+	getSerializedMessages,
 });
 
 // Preview context
@@ -622,11 +601,17 @@ async function onPublish() {
 </script>
 ```
 
-**Step 2: Update template actions**
-
-Replace the `<template #actions>` section (lines 163-192):
+**Step 2: Replace template**
 
 ```vue
+<template>
+  <private-view title="AI Extension Builder">
+    <template #title-outer:prepend>
+      <v-button class="header-icon" rounded disabled icon secondary>
+        <v-icon name="auto_fix_high" />
+      </v-button>
+    </template>
+
     <template #actions>
       <span v-if="isSaving" class="save-status">
         <v-progress-circular indeterminate x-small />
@@ -654,21 +639,69 @@ Replace the `<template #actions>` section (lines 163-192):
         <v-icon name="publish" />
       </v-button>
     </template>
+
+    <div class="builder-container">
+      <div class="chat-section">
+        <ChatPanel
+          :messages="messages"
+          :loading="isChatLoading || isLoading"
+          :pending-question="pendingQuestion"
+          @send="onSendMessage"
+          @answer="onAnswer"
+          @skip="onSkip"
+        />
+        <v-notice v-if="statusMessage" :type="statusMessage.type" class="status-notice">
+          {{ statusMessage.message }}
+        </v-notice>
+      </div>
+
+      <div class="preview-section">
+        <PreviewControls
+          v-model:collection="selectedCollection"
+          v-model:item="selectedItem"
+          v-model:field="selectedField"
+        />
+        <PreviewPanel
+          :component="compiledComponent"
+          :preview-props="previewProps"
+          :error="compileError"
+        />
+      </div>
+    </div>
+  </private-view>
+</template>
 ```
 
-**Step 3: Update ChatPanel loading prop**
-
-Replace line 197 (`:loading="isLoading"`):
+**Step 3: Replace styles**
 
 ```vue
-          :loading="isChatLoading || isLoading"
-```
+<style scoped>
+.builder-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--content-padding);
+  height: calc(100% - var(--content-padding) * 2);
+  padding: var(--content-padding);
+  overflow: hidden;
+}
 
-**Step 4: Add save status styles**
+.chat-section,
+.preview-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--content-padding);
+  overflow: hidden;
+}
 
-Add to the `<style scoped>` section:
+.status-notice {
+  flex-shrink: 0;
+}
 
-```css
+.header-icon {
+  --v-button-background-color: var(--theme--primary-background);
+  --v-button-color: var(--theme--primary);
+}
+
 .save-status {
   display: flex;
   align-items: center;
@@ -677,9 +710,10 @@ Add to the `<style scoped>` section:
   font-size: 12px;
   margin-right: 8px;
 }
+</style>
 ```
 
-**Step 5: Commit**
+**Step 4: Commit**
 
 ```bash
 git add extensions/ai-extension-builder/src/module/views/BuilderView.vue
@@ -688,122 +722,9 @@ git commit -m "feat(ai-builder): integrate session persistence in BuilderView"
 
 ---
 
-### Task 7: Watch Messages for Auto-Save
+### Task 7: Manual Test
 
-**Files:**
-- Modify: `extensions/ai-extension-builder/src/module/composables/use-auto-save.ts`
-- Modify: `extensions/ai-extension-builder/src/module/views/BuilderView.vue`
-
-**Step 1: Update useAutoSave to accept messages watch trigger**
-
-Replace the `useAutoSave` composable:
-
-```ts
-import type { UIMessage } from 'ai';
-import type { ComputedRef, Ref } from 'vue';
-import type { ExtensionConfig } from '../schemas';
-import { useApi } from '@directus/extensions-sdk';
-import { ref, watch } from 'vue';
-
-interface UseAutoSaveOptions {
-	extensionId: Ref<string | null>;
-	files: Ref<Record<string, string>>;
-	config: Ref<ExtensionConfig | null>;
-	messages: ComputedRef<UIMessage[]>;
-	getSerializedMessages: () => UIMessage[];
-}
-
-export function useAutoSave(options: UseAutoSaveOptions) {
-	const { extensionId, files, config, messages, getSerializedMessages } = options;
-	const api = useApi();
-
-	const isSaving = ref(false);
-	const lastSaved = ref<Date | null>(null);
-	const error = ref<Error | null>(null);
-
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-	async function save() {
-		if (!extensionId.value) return;
-
-		isSaving.value = true;
-		error.value = null;
-
-		try {
-			await api.patch(`/items/ai_extensions/${extensionId.value}`, {
-				files: files.value,
-				extension_config: config.value ? {
-					types: config.value.types,
-					group: config.value.group,
-					options: config.value.options,
-				} : null,
-				messages: getSerializedMessages(),
-			});
-			lastSaved.value = new Date();
-		} catch (err) {
-			error.value = err instanceof Error ? err : new Error(String(err));
-			console.error('Auto-save failed:', err);
-		} finally {
-			isSaving.value = false;
-		}
-	}
-
-	function debouncedSave() {
-		if (debounceTimer) {
-			clearTimeout(debounceTimer);
-		}
-		debounceTimer = setTimeout(() => {
-			save();
-			debounceTimer = null;
-		}, 2000);
-	}
-
-	// Watch for changes (files, config, or messages length)
-	watch(
-		[files, config, () => messages.value.length],
-		() => {
-			if (extensionId.value) {
-				debouncedSave();
-			}
-		},
-		{ deep: true }
-	);
-
-	return {
-		isSaving,
-		lastSaved,
-		error,
-		saveNow: save,
-	};
-}
-```
-
-**Step 2: Update BuilderView to pass messages**
-
-In BuilderView.vue, update the useAutoSave call:
-
-```ts
-const { isSaving, lastSaved } = useAutoSave({
-	extensionId,
-	files,
-	config,
-	messages,
-	getSerializedMessages,
-});
-```
-
-**Step 3: Commit**
-
-```bash
-git add extensions/ai-extension-builder/src/module/composables/use-auto-save.ts extensions/ai-extension-builder/src/module/views/BuilderView.vue
-git commit -m "feat(ai-builder): watch messages for auto-save"
-```
-
----
-
-### Task 8: Manual Test
-
-**Step 1: Build and test**
+**Step 1: Build**
 
 ```bash
 pnpm build
@@ -824,7 +745,7 @@ pnpm build
 3. Messages should reload
 4. Send new message - should work with continuation prompt
 
-**Step 4: Commit any fixes needed**
+**Step 4: Commit any fixes**
 
 ---
 
@@ -837,5 +758,4 @@ Tasks:
 4. Create useAutoSave composable
 5. Update module routes
 6. Update BuilderView
-7. Watch messages for auto-save
-8. Manual test
+7. Manual test
